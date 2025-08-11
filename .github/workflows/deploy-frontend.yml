@@ -12,6 +12,7 @@ on:
         description: 'Why trigger the deploy?'
         required: false
         default: 'manual'
+        
 
 concurrency:
   group: frontend-deploy
