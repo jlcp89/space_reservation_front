@@ -3,6 +3,7 @@ import { Edit, Trash2, Plus, Building, Users } from 'lucide-react';
 import { Space } from '../../types';
 import { Button } from '../common/Button';
 import { Modal, ConfirmModal } from '../common/Modal';
+import { PageContainer } from '../common/PageContainer';
 import { SpaceForm } from './SpaceForm';
 import { formatDate } from '../../utils/dateHelpers';
 
@@ -75,7 +76,7 @@ export const SpaceList: React.FC<SpaceListProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -191,6 +192,6 @@ export const SpaceList: React.FC<SpaceListProps> = ({
         confirmText="Delete"
         isLoading={isSubmitting}
       />
-    </div>
+    </PageContainer>
   );
 };

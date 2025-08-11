@@ -3,6 +3,7 @@ import { Edit, Trash2, Plus, Users } from 'lucide-react';
 import { Person } from '../../types';
 import { Button } from '../common/Button';
 import { Modal, ConfirmModal } from '../common/Modal';
+import { PageContainer } from '../common/PageContainer';
 import { PersonForm } from './PersonForm';
 import { formatDate } from '../../utils/dateHelpers';
 
@@ -81,7 +82,7 @@ export const PersonList: React.FC<PersonListProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -209,6 +210,6 @@ export const PersonList: React.FC<PersonListProps> = ({
         confirmText="Delete"
         isLoading={isSubmitting}
       />
-    </div>
+    </PageContainer>
   );
 };

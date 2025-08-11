@@ -4,6 +4,7 @@ import { Reservation, PaginationParams } from '../../types';
 import { Button } from '../common/Button';
 import { Modal, ConfirmModal } from '../common/Modal';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { PageContainer } from '../common/PageContainer';
 import { ReservationForm } from './ReservationForm';
 import { formatDate, formatTime, formatDateTime } from '../../utils/dateHelpers';
 
@@ -127,7 +128,7 @@ export const ReservationList: React.FC<ReservationListProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -397,6 +398,6 @@ export const ReservationList: React.FC<ReservationListProps> = ({
         confirmText="Cancel Reservation"
         isLoading={isSubmitting}
       />
-    </div>
+    </PageContainer>
   );
 };

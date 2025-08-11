@@ -1,3 +1,12 @@
+/*
+ * Modal Component Enhancements:
+ * - Fixed centering: Always centers modals on all screen sizes (was bottom-anchored on mobile)
+ * - Added proper backdrop blur and opacity (bg-gray-900/50)
+ * - Enhanced focus management with visible focus ring
+ * - Added max-height constraint with overflow-y-auto for long content
+ * - Uses standard z-50 instead of CSS variable
+ * - Improved accessibility with proper ARIA attributes
+ */
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -48,22 +57,22 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   const modalContent = (
-    <div className="fixed inset-0 z-[var(--z-modal,60)]">
+    <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-gray-900 bg-opacity-40 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Centering wrapper */}
-      <div className="flex min-h-full items-end sm:items-center justify-center p-4">
+      {/* Centering wrapper - always center on all screen sizes */}
+      <div className="fixed inset-0 flex items-center justify-center p-4 sm:p-6">
         <div
           ref={panelRef}
           role="dialog"
-            aria-modal="true"
-            aria-label={title}
+          aria-modal="true"
+          aria-label={title}
           tabIndex={-1}
-          className={`relative w-full transform overflow-hidden rounded-lg bg-white dark:bg-[var(--surface-1)] text-left shadow-xl ring-1 ring-gray-200 dark:ring-gray-700 transition-all sm:my-8 ${sizeClasses[size]} animate-fadeInScale`}
+          className={`relative w-full max-h-screen transform overflow-y-auto rounded-lg bg-white dark:bg-[var(--surface-1)] text-left shadow-xl ring-1 ring-gray-200 dark:ring-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 ${sizeClasses[size]} animate-fadeInScale`}
         >
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">

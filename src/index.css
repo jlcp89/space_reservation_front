@@ -2,6 +2,11 @@
 /* Import design tokens */
 @import './styles/design-tokens.css';
 
+/* Tailwind CSS directives */
+@tailwind base;
+@tailwind components;  
+@tailwind utilities;
+
 * {
   margin: 0;
   padding: 0;
@@ -296,4 +301,20 @@ code {
     padding-left: 2rem;
     padding-right: 2rem;
   }
+}
+
+/* Modal animations */
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 0.18s cubic-bezier(0.16, 0.8, 0.3, 1) both;
 }
