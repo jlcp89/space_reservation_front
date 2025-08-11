@@ -1,0 +1,237 @@
+name: Frontend CI & Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'test1f/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why trigger the deploy?'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: frontend-deploy
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: frontend-app
+  IMAGE_REGISTRY: ghcr.io
+  CONTAINER_NAME: workspace-frontend
+  HOST_PORT: 3000
+  CONTAINER_PORT: 3000
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-test-push:
+    name: Build, Test & Push Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive image meta
+        id: meta
+        run: |
+          SHA_TAG=${GITHUB_SHA::12}
+          echo "version=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${SHA_TAG}"
+
+      - name: Determine working directory
+        id: workdir
+        run: |
+          if [ -f test1f/package.json ]; then
+            echo "Detected nested test1f project"
+            echo "dir=test1f" >> $GITHUB_OUTPUT
+          elif [ -f package.json ]; then
+            echo "Detected project at repository root"
+            echo "dir=." >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No package.json found at root or in test1f/" >&2
+            ls -1
+            exit 1
+          fi
+          echo "Using working directory: $(grep '^dir=' $GITHUB_OUTPUT | cut -d= -f2)"
+
+      - name: Verify lockfile path
+        run: |
+          echo "Verifying existence of dependency lock file before setup-node cache step"
+          if [ -f package-lock.json ]; then
+            echo "Found lockfile at root:"; ls -l package-lock.json; FOUND=1; fi
+          if [ -f test1f/package-lock.json ]; then
+            echo "Found lockfile in test1f/:"; ls -l test1f/package-lock.json; FOUND=1; fi
+          if [ -z "$FOUND" ]; then
+            echo "ERROR: No package-lock.json found at root or in test1f/." >&2
+            echo "Repository tree (top 100 lines):" >&2
+            ls -R | head -100
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            test1f/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ steps.workdir.outputs.dir }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ steps.workdir.outputs.dir }}
+        run: npm test -- --coverage --watchAll=false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ steps.workdir.outputs.dir }}
+          file: ${{ steps.workdir.outputs.dir }}/Dockerfile
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            REACT_APP_API_BASE_URL=${{ secrets.REACT_APP_API_BASE_URL }}
+            REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL }}
+            REACT_APP_COGNITO_USER_POOL_ID=${{ secrets.REACT_APP_COGNITO_USER_POOL_ID }}
+            REACT_APP_COGNITO_APP_CLIENT_ID=${{ secrets.REACT_APP_COGNITO_APP_CLIENT_ID }}
+            REACT_APP_COGNITO_REGION=${{ secrets.REACT_APP_COGNITO_REGION }}
+          tags: |
+            ${{ env.IMAGE_REGISTRY }}/${{ github.repository }}-frontend:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_REGISTRY }}/${{ github.repository }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-test-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    environment: production
+    steps:
+      - name: Checkout (for scripts if needed)
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          chmod 600 key.pem
+          PORT="${{ secrets.EC2_SSH_PORT }}"
+          if [ -z "$PORT" ]; then PORT=22; fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "$PORT" -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy containers via SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
+          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
+          REPO: ${{ github.repository }}-frontend
+          TAG: ${{ needs.build-test-push.outputs.image-tag }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          HOST_PORT: ${{ env.HOST_PORT }}
+          CONTAINER_PORT: ${{ env.CONTAINER_PORT }}
+          REACT_APP_API_BASE_URL: ${{ secrets.REACT_APP_API_BASE_URL }}
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          REACT_APP_COGNITO_USER_POOL_ID: ${{ secrets.REACT_APP_COGNITO_USER_POOL_ID }}
+          REACT_APP_COGNITO_APP_CLIENT_ID: ${{ secrets.REACT_APP_COGNITO_APP_CLIENT_ID }}
+          REACT_APP_COGNITO_REGION: ${{ secrets.REACT_APP_COGNITO_REGION }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -e
+          PORT="${EC2_PORT:-22}"
+          REMOTE_IMAGE="${IMAGE_REGISTRY}/${REPO}:${TAG}"
+          echo "Creating env file for remote deployment"
+          {
+            echo "REACT_APP_API_BASE_URL=${REACT_APP_API_BASE_URL}";
+            echo "REACT_APP_API_URL=${REACT_APP_API_URL}";
+            echo "REACT_APP_COGNITO_USER_POOL_ID=${REACT_APP_COGNITO_USER_POOL_ID}";
+            echo "REACT_APP_COGNITO_APP_CLIENT_ID=${REACT_APP_COGNITO_APP_CLIENT_ID}";
+            echo "REACT_APP_COGNITO_REGION=${REACT_APP_COGNITO_REGION}";
+          } > frontend_deploy.env
+          echo "Creating docker-compose override for production"
+          cat > docker-compose.prod.yml <<EOF
+          services:
+            frontend:
+              image: ${REMOTE_IMAGE}
+          EOF
+          echo "Transferring files to EC2 (${EC2_HOST})"
+          scp -i key.pem -P "$PORT" frontend_deploy.env "$EC2_USER@$EC2_HOST:/tmp/workspace-frontend.env"
+          scp -i key.pem -P "$PORT" docker-compose.prod.yml "$EC2_USER@$EC2_HOST:/tmp/docker-compose-frontend.prod.yml"
+          if [ -f test1f/docker-compose.yml ]; then
+            scp -i key.pem -P "$PORT" test1f/docker-compose.yml "$EC2_USER@$EC2_HOST:/tmp/docker-compose-frontend.yml"
+          fi
+          if [ -f test1f/nginx.conf ]; then
+            scp -i key.pem -P "$PORT" test1f/nginx.conf "$EC2_USER@$EC2_HOST:/tmp/nginx.conf"
+          fi
+          echo "Executing remote deployment"
+          ssh -i key.pem -p "$PORT" "$EC2_USER@$EC2_HOST" <<REMOTE_SCRIPT
+          set -euo pipefail
+          APP_DIR="/opt/workspace-frontend"
+          REMOTE_IMAGE="${REMOTE_IMAGE}"
+          CONTAINER_NAME="${CONTAINER_NAME}"
+          HOST_PORT="${HOST_PORT}"
+          GITHUB_TOKEN="${GITHUB_TOKEN}"
+          GITHUB_ACTOR="${GITHUB_ACTOR}"
+          echo "[EC2] APP_DIR=\$APP_DIR"
+          if [ -z "\$APP_DIR" ]; then
+            echo "[EC2][ERROR] APP_DIR empty" >&2
+            exit 11
+          fi
+          sudo mkdir -p "\$APP_DIR"
+          if [ ! -s /tmp/workspace-frontend.env ]; then
+            echo "[EC2][WARN] /tmp/workspace-frontend.env missing or empty" >&2
+          fi
+          sudo mv /tmp/workspace-frontend.env "\$APP_DIR/.env" || true
+          sudo mv /tmp/docker-compose-frontend.yml "\$APP_DIR/docker-compose.yml" || true
+          sudo mv /tmp/docker-compose-frontend.prod.yml "\$APP_DIR/docker-compose.prod.yml" || true
+          sudo mv /tmp/nginx.conf "\$APP_DIR/nginx.conf" || true
+          sudo chown -R ec2-user:ec2-user "\$APP_DIR" || true
+          cd "\$APP_DIR"
+          echo "[EC2] Loading environment variables"
+          export \$(grep -v '^#' .env | xargs)
+          echo "[EC2] Docker login"
+          echo "\$GITHUB_TOKEN" | docker login ghcr.io -u "\$GITHUB_ACTOR" --password-stdin || true
+          echo "[EC2] Pulling \$REMOTE_IMAGE"
+          docker pull "\$REMOTE_IMAGE"
+          echo "[EC2] Stopping existing containers"
+          docker stop "\$CONTAINER_NAME" 2>/dev/null || true
+          docker rm "\$CONTAINER_NAME" 2>/dev/null || true
+          echo "[EC2] Creating Docker network"
+          docker network create workspace-network 2>/dev/null || true
+          echo "[EC2] Starting frontend container"
+          docker run -d --name "\$CONTAINER_NAME" \
+            --network workspace-network \
+            --restart unless-stopped \
+            -p "\$HOST_PORT:3000" \
+            "\$REMOTE_IMAGE"
+          docker image prune -f --filter until=168h || true
+          echo "[EC2] Frontend deployment complete"
+          REMOTE_SCRIPT
+
+      - name: Summary
+        run: |
+          echo "Deployed frontend image ghcr.io/${{ github.repository }}-frontend:${{ needs.build-test-push.outputs.image-tag }} to ${{ secrets.EC2_HOST }}:${{ env.HOST_PORT }}" >> $GITHUB_STEP_SUMMARY

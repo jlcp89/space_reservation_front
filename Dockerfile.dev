@@ -1,0 +1,32 @@
+###############################
+# Frontend Development Dockerfile
+# Quick wins:
+# - Use npm ci for deterministic installs
+# - Add BuildKit cache mount
+# - Explicit NODE_ENV=development
+###############################
+
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies) deterministically
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+# Copy source code
+COPY . .
+
+# Enable polling for file watching in containers & explicit env
+ENV CHOKIDAR_USEPOLLING=true \
+	NODE_ENV=development
+
+# Expose port 3000 (default CRA dev server port)
+EXPOSE 3000
+
+# Start development server
+CMD ["npm", "start"]

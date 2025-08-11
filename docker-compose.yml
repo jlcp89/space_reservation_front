@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  frontend:
+    container_name: workspace-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Only build args needed; runtime env vars are baked into static bundle.
+      args:
+        REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-http://localhost:3001}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001/api}
+        REACT_APP_COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID}
+        REACT_APP_COGNITO_APP_CLIENT_ID: ${COGNITO_APP_CLIENT_ID}
+        REACT_APP_COGNITO_REGION: ${COGNITO_REGION:-us-east-1}
+    restart: unless-stopped
+    ports:
+      - 3002:3000
+    networks:
+      - frontend-network
+    healthcheck:
+      # Align with Dockerfile healthcheck (static file exists)
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/index.html"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+networks:
+  frontend-network:
+    driver: bridge
