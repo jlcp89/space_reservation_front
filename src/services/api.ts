@@ -16,9 +16,9 @@ class ApiService {
   private api: AxiosInstance;
 
   constructor() {
-  // Prefer explicit API URL, fallback to port 3001 (API container exposed as 3001 on host)
-  // IMPORTANT: Fallback must match exposed backend host port (3001). If REACT_APP_API_URL not defined at build, this literal is baked.
-  const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+  // Use relative URL for production (nginx proxy) or explicit API URL for development
+  // In production, nginx serves both frontend and API, so relative URLs work
+  const baseURL = process.env.REACT_APP_API_URL || '/api';
 
     console.log('🚀 API Service initialized with:', { baseURL });
 
